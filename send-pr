@@ -118,7 +118,7 @@ Dir.mktmpdir do |dir|
 
       args = []
       args << "--cover-letter"
-      args << "--subject-prefix='PATCH #{repo} #{pr[:base][:ref]}'"
+      #args << "--subject-prefix='PATCH #{repo} #{pr[:base][:ref]}'"
       args << "--output-directory" << patch_dir
       args << "--thread=shallow"
       if not msg_id.nil?
@@ -130,13 +130,9 @@ Dir.mktmpdir do |dir|
 
       if options[:verbose]
         puts "cover_letter = #{cover_letter}"
-
         puts "args = #{args.join(' ')}"
-        puts `git format-patch #{args.join(" ")}`
-
-        puts `pwd`
-        puts `ls -lh #{patch_dir}`
       end
+      puts `git format-patch #{args.join(" ")}`
 
       # Fix cover letter.
       text = File.read(File.join(patch_dir, cover_letter))
@@ -151,9 +147,13 @@ Dir.mktmpdir do |dir|
         options[:to] + " as Message-Id: <#{msg_id}>, count: #{reroll_count}"
 
       text.gsub!(/[*]{3} SUBJECT HERE [*]{3}/, pr[:title])
-      text.gsub!(/[*]{3} BLURB HERE [*]{3}/, note + "\n\n" + pr[:body])
+      text.gsub!(/[*]{3} BLURB HERE [*]{3}/, note + "\n\n" + "Repository: #{repo} #{pr[:base][:ref]}\n" + pr[:body])
       File.open(File.join(patch_dir, cover_letter), "w") do |f|
         f.puts text
+      end
+
+      if options[:verbose]
+        puts `cat #{File.join(patch_dir, cover_letter)}`
       end
 
       args = []
