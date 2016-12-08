@@ -118,7 +118,7 @@ Dir.mktmpdir do |dir|
 
       args = []
       args << "--cover-letter"
-      #args << "--subject-prefix='PR #{pr[:base][:ref]}'"
+      args << "--subject-prefix='PATCH #{repo} #{pr[:base][:ref]}'"
       args << "--output-directory" << patch_dir
       args << "--thread=shallow"
       if not msg_id.nil?
