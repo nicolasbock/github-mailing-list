@@ -103,10 +103,15 @@ Dir.mktmpdir do |dir|
     puts `git clone #{pr[:base][:repo][:clone_url]} #{pr[:base][:repo][:ref]}`
     Dir.chdir(pr[:base][:repo][:name]) do
       if options[:from].nil?
-        user_name = `git config --get user.name`
-        user_email = `git config --get user.email`
+        user_name = `git config --get user.name`.strip
+        user_email = `git config --get user.email`.strip
 
-        options[:from] = "#{user.name} <#{user.email}>" unless user_email.empty?
+        if not user_email.empty? and not user_name.empty?
+          options[:from] = "#{user_name} <#{user_email}>"
+          if options[:verbose]
+            puts "from set to #{options[:from]}"
+          end
+        end
       end
 
       puts `git fetch origin +refs/pull/#{options[:number]}/head`
@@ -165,7 +170,11 @@ Dir.mktmpdir do |dir|
       args << "--confirm never"
       args << "--to=\"#{options[:to]}\""
       args << "--from=\"#{options[:from]}\"" unless options[:from].nil?
+      args << "--suppress-cc=author"
       args << "#{patch_dir}"
+      if options[:verbose]
+        puts "args = #{args.join(' ')}"
+      end
       puts `git send-email #{args.join(" ")}`
 
       # Leave comment.
