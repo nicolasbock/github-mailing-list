@@ -113,7 +113,7 @@ Dir.mktmpdir do |dir|
 
       puts `git fetch origin +refs/pull/#{options[:number]}/head`
       puts `git checkout FETCH_HEAD`
-      
+
       reroll_count += 1
 
       cover_letter = "0000-cover-letter.patch"
