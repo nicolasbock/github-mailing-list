@@ -149,7 +149,7 @@ Dir.mktmpdir do |dir|
       end
 
       note = "This pull request has been submitted to " +
-        options[:to] + " as Message-Id: <#{msg_id}>, count: #{reroll_count}"
+        options[:to] + " as Message-Id: #{msg_id}, count: #{reroll_count}"
 
       text.gsub!(/[*]{3} SUBJECT HERE [*]{3}/, pr[:title])
       text.gsub!(/[*]{3} BLURB HERE [*]{3}/, note + "\n\n" +
