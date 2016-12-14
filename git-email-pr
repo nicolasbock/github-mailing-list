@@ -1,12 +1,11 @@
 #!/usr/bin/env ruby
 
-require 'pp'
-require 'octokit'
-require 'optparse'
-require 'tmpdir'
+require "octokit"
+require "optparse"
+require "pp"
+require "tmpdir"
 
-
-def parse_options
+def parse_options(argv)
   options = {}
   OptionParser.new do |opts|
     opts.banner = "Usage: send-pr [options] USER REPOSITORY N"
@@ -43,7 +42,7 @@ def parse_options
     opts.on("-l", "--list-PRs", "List pull requests") do |l|
       options[:list] = true
     end
-  end.parse!
+  end.parse! argv
 
   raise OptionParser::ParseError, "missing --user" if options[:user].nil?
   raise OptionParser::ParseError, "missing --repository" if options[:repository].nil?
@@ -51,14 +50,12 @@ def parse_options
   raise OptionParser::ParseError, "missing --to" if options[:to].nil?
 
   options[:access_token] = ENV['GITHUB_TOKEN']
-  unless options[:access_token]
-    abort "You must export GITHUB_TOKEN"
-  end
+  raise OptionParser::ParseError, "You must export GITHUB_TOKEN" if options[:access_token].nil?
 
   options
 end
 
-options = parse_options
+options = parse_options ARGV
 
 repo = options[:user] + "/" + options[:repository]
 client = Octokit::Client.new(:access_token => options[:access_token])
