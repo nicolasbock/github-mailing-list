@@ -43,10 +43,6 @@ def parse_options
     opts.on("-l", "--list-PRs", "List pull requests") do |l|
       options[:list] = true
     end
-
-    opts.on("--access-token TOKEN", "Github access token") do |t|
-      options[:access_token] = t
-    end
   end.parse!
 
   raise OptionParser::ParseError, "missing --user" if options[:user].nil?
@@ -54,10 +50,11 @@ def parse_options
   raise OptionParser::ParseError, "missing --number" if options[:number].nil?
   raise OptionParser::ParseError, "missing --to" if options[:to].nil?
 
-  options[:access_token] = ENV['GITHUB_ACCESS_TOKEN'] if options[:access_token].nil?
+  options[:access_token] = ENV['GITHUB_TOKEN']
   unless options[:access_token]
-    abort "You must export GITHUB_ACCESS_TOKEN first."
+    abort "You must export GITHUB_TOKEN"
   end
+
   options
 end
 
