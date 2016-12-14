@@ -148,11 +148,16 @@ Dir.mktmpdir do |dir|
       note = "This pull request has been submitted to " +
         options[:to] + " as Message-Id: #{msg_id}, count: #{reroll_count}"
 
-      text.gsub!(/[*]{3} SUBJECT HERE [*]{3}/, pr[:title])
+      text.gsub!(/[*]{3} SUBJECT HERE [*]{3}/,
+                 "#{pr[:base][:repo][:full_name]}##{pr[:number]}" +
+                 " " + pr[:title])
       text.gsub!(/[*]{3} BLURB HERE [*]{3}/, note + "\n\n" +
                  "Repository: #{repo} #{pr[:base][:ref]}\n" +
-                 "URL: #{pr[:base][:repo][:clone_url]}\n" +
-                 "     #{pr[:base][:repo][:ssh_url]}\n\n" +
+                 "PR URL: #{pr[:html_url]}\n" +
+                 "repository URL: #{pr[:base][:repo][:clone_url]}\n" +
+                 "                #{pr[:base][:repo][:ssh_url]}\n" +
+                 "fork URL: #{pr[:head][:repo][:html_url]}/tree/#{pr[:head][:ref]}\n" +
+                 "\n" +
                  pr[:body])
       File.open(File.join(patch_dir, cover_letter), "w") do |f|
         f.puts text
