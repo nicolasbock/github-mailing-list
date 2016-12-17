@@ -1,5 +1,7 @@
-task :default => [:test]
+require 'rspec/core/rake_task'
 
-task :test do
-  ruby "test_git_email_pr.rb"
+RSpec::Core::RakeTask.new(:spec) do |config|
+  config.rcov = true
 end
+
+task :default => :spec
