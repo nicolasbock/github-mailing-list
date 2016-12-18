@@ -5,46 +5,108 @@ require "pp"
 require "git-email-pr"
 require "tmpdir"
 
-options = ParseCommandLine.new(ARGV)
+def parse_commandline(argv)
+  options = {}
+  OptionParser.new do |opts|
+    opts.banner = "Usage: send-pr [options] USER REPOSITORY N"
 
-repo = options[:user] + "/" + options[:repository]
-client = Octokit::Client.new(:access_token => options[:access_token])
-pr = client.pull_request(repo, options[:number])
-review_comments = client.pull_request_comments(repo, options[:number])
-issue_comments = client.issue_comments(repo, options[:number])
+    options[:verbose] = false
+    opts.on("-v", "--[no-]verbose", "Run verbosely") do |v|
+      options[:verbose] = v
+    end
 
-if options[:verbose]
-  puts "Pull Request:"
-  p pr
+    opts.on("-t", "--to EMAIL", "Email recipient") do |n|
+      options[:to] = n
+    end
 
-  puts "Comments (#{issue_comments.size}):"
-  p issue_comments
+    opts.on("-f", "--from EMAIL", "Send email from this address") do |f|
+      options[:from] = f
+    end
 
-  puts "Review comments (#{review_comments.size}):"
-  p review_comments
+    opts.on("--reply-to EMAIL", "The reply-to address") do |r|
+      options[:reply_to] = r
+    end
+
+    opts.on("-u", "--user USER", "Github user or organization") do |u|
+      options[:user] = u
+    end
+
+    opts.on("-r", "--repository REPOSITORY", "The name of the repository") do |r|
+      options[:repository] = r
+    end
+
+    opts.on("-N", "--number N", "Pull request number") do |n|
+      options[:number] = n
+    end
+
+    opts.on("-l", "--list-PRs", "List pull requests") do |l|
+      options[:list] = true
+    end
+
+    options[:workdir] = "/var/tmp/git-email-pr"
+    options[:patch_dir] = "patches"
+    opts.on("-d", "--workdir", "The workdir") do |d|
+      options[:workdir] = d
+    end
+  end.parse! argv
+
+  raise OptionParser::ParseError, "missing --user" if options[:user].nil?
+  raise OptionParser::ParseError, "missing --repository" if options[:repository].nil?
+  raise OptionParser::ParseError, "missing --number" if options[:number].nil?
+  raise OptionParser::ParseError, "missing --to" if options[:to].nil?
+
+  options[:access_token] = ENV['GITHUB_TOKEN']
+  raise OptionParser::ParseError, "You must export GITHUB_TOKEN" if options[:access_token].nil?
+
+  options
 end
 
-# See if we have previously processed this pull request.
-msg_id = nil
-reroll_count = 0
-issue_comments.each do |c|
-  result = /Message-Id: <+([^<>]+)>/.match(c[:body])
-  if not result.nil?
-    msg_id = result[1]
-    puts "msg_id = #{msg_id}"
+def fetch(options)
+  options[:repo] = options[:user] + "/" + options[:repository]
+  client = Octokit::Client.new(:access_token => options[:access_token])
+  pr = client.pull_request(options[:repo], options[:number])
+  review_comments = client.pull_request_comments(options[:repo], options[:number])
+  issue_comments = client.issue_comments(options[:repo], options[:number])
+
+  if options[:verbose]
+    puts "Pull Request:"
+    p pr
+
+    puts "Comments (#{issue_comments.size}):"
+    p issue_comments
+
+    puts "Review comments (#{review_comments.size}):"
+    p review_comments
   end
-  result = /count: ([0-9]+)/.match(c[:body])
-  if not result.nil?
-    reroll_count = result[1].to_i
+
+  [client, pr, review_comments, issue_comments]
+end
+
+def parse_msg_id(issue_comments, options)
+  options[:msg_id] = nil
+  options[:reroll_count] = 0
+  issue_comments.each do |c|
+    result = /Message-Id: <+([^<>]+)>/.match(c[:body])
+    if not result.nil?
+      options[:msg_id] = result[1]
+      puts "msg_id = #{options[:msg_id]}"
+    end
+    result = /count: ([0-9]+)/.match(c[:body])
+    if not result.nil?
+      options[:reroll_count] = result[1].to_i
+    end
   end
 end
 
-# Checkout PR.
-Dir.mktmpdir do |dir|
-  Dir.chdir(dir) do
-    patch_dir = File.join(dir, 'patches')
-    Dir.mkdir(patch_dir)
+def clone_PR(workdir, pr)
+  Dir.mkdir(workdir) unless Dir.exist?(workdir)
+  Dir.chdir(workdir) do
     puts `git clone #{pr[:base][:repo][:clone_url]} #{pr[:base][:repo][:ref]}`
+  end
+end
+
+def checkout_PR(workdir, pr, options)
+  Dir.chdir(workdir) do
     Dir.chdir(pr[:base][:repo][:name]) do
       if options[:from].nil?
         user_name = `git config --get user.name`.strip
@@ -60,69 +122,99 @@ Dir.mktmpdir do |dir|
 
       puts `git fetch origin +refs/pull/#{options[:number]}/head`
       puts `git checkout FETCH_HEAD`
+    end
+  end
+end
 
-      reroll_count += 1
+def create_patches(workdir, options, pr)
+  Dir.chdir(workdir) do
+    options[:patch_dir] = File.join(workdir, options[:patch_dir])
+    Dir.mkdir(options[:patch_dir]) unless Dir.exists?(options[:patch_dir])
+    Dir.chdir(pr[:base][:repo][:name]) do
+      options[:reroll_count] += 1
 
-      cover_letter = "0000-cover-letter.patch"
+      options[:cover_letter] = "0000-cover-letter.patch"
 
       args = []
       args << "--cover-letter"
       #args << "--subject-prefix='PATCH #{repo} #{pr[:base][:ref]}'"
-      args << "--output-directory" << patch_dir
+      args << "--output-directory" << options[:patch_dir]
       args << "--thread=shallow"
-      if not msg_id.nil?
-        args << "--in-reply-to=#{msg_id}"
-        args << "--reroll-count" << reroll_count
-        cover_letter = "v#{reroll_count}-" + cover_letter
+      if not options[:msg_id].nil?
+        args << "--in-reply-to=#{options[:msg_id]}"
+        args << "--reroll-count" << options[:reroll_count]
+        options[:cover_letter] = "v#{options[:reroll_count]}-" + options[:cover_letter]
       end
       args << "origin/#{pr[:base][:ref]}"
 
       if options[:verbose]
-        puts "cover_letter = #{cover_letter}"
+        puts "cover_letter = #{options[:cover_letter]}"
         puts "args = #{args.join(' ')}"
       end
       puts `git format-patch #{args.join(" ")}`
+    end
+  end
+end
 
-      # Fix cover letter.
-      text = File.read(File.join(patch_dir, cover_letter))
-      if msg_id.nil?
-        msg_id = /Message-Id: (.*)/.match(text)[1]
+def fix_coverletter(workdir, options, pr)
+  Dir.chdir(workdir) do
+    Dir.chdir(pr[:base][:repo][:name]) do
+      text = File.read(File.join(options[:patch_dir], options[:cover_letter]))
+      if options[:msg_id].nil?
+        options[:msg_id] = /Message-Id: (.*)/.match(text)[1]
       end
       if options[:verbose]
-        puts "new Message-Id: #{msg_id}"
+        puts "new Message-Id: #{options[:msg_id]}"
       end
 
-      note = "This pull request has been submitted to " +
-        options[:to] + " as Message-Id: #{msg_id}, count: #{reroll_count}"
+      options[:note] = "This pull request has been submitted to " +
+        options[:to] + " as Message-Id: #{options[:msg_id]}, count: #{options[:reroll_count]}"
 
       text.gsub!(/[*]{3} SUBJECT HERE [*]{3}/, pr[:title])
-      text.gsub!(/[*]{3} BLURB HERE [*]{3}/, note + "\n\n" +
-                 "Repository: #{repo} #{pr[:base][:ref]}\n" +
+      text.gsub!(/[*]{3} BLURB HERE [*]{3}/, options[:note] + "\n\n" +
+                 "Repository: #{options[:repo]} #{pr[:base][:ref]}\n" +
                  "URL: #{pr[:base][:repo][:clone_url]}\n" +
                  "     #{pr[:base][:repo][:ssh_url]}\n\n" +
                  pr[:body])
-      File.open(File.join(patch_dir, cover_letter), "w") do |f|
+      File.open(File.join(options[:patch_dir], options[:cover_letter]), "w") do |f|
         f.puts text
       end
 
       if options[:verbose]
-        puts `cat #{File.join(patch_dir, cover_letter)}`
+        puts `cat #{File.join(options[:patch_dir], options[:cover_letter])}`
       end
+    end
+  end
+end
 
+def send_email(workdir, options, pr)
+  Dir.chdir(workdir) do
+    Dir.chdir(pr[:base][:repo][:name]) do
       args = []
       args << "--no-thread"
       args << "--confirm never"
       args << "--to=\"#{options[:to]}\""
       args << "--from=\"#{options[:from]}\"" unless options[:from].nil?
       args << "--suppress-cc=author"
-      args << "#{patch_dir}"
+      args << "#{options[:patch_dir]}"
       if options[:verbose]
-        puts "args = #{args.join(' ')}"
+        puts "running git send-email #{args.join(' ')}"
       end
-      puts `git send-email #{args.join(" ")}`
-
-      # Leave comment.
-      client.add_comment(repo, options[:number], note)
+      #puts `git send-email #{args.join(" ")}`
     end
   end
 end
+
+def leave_comment(workdir, options, client, pr)
+  client.add_comment(options[:repo], options[:number], options[:note])
+end
+
+options = parse_commandline(ARGV)
+client, pr, review_comments, issue_comments = fetch(options)
+parse_msg_id(issue_comments, options)
+clone_PR(options[:workdir], pr)
+checkout_PR(options[:workdir], pr, options)
+create_patches(options[:workdir], options, pr)
+fix_coverletter(options[:workdir], options, pr)
+send_email(options[:workdir], options, pr)
+leave_comment(options[:workdir], options, client, pr)
