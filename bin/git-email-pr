@@ -1,0 +1,13 @@
+#!/usr/bin/env ruby
+
+require "git-email-pr"
+
+gh = GitHubMailingList.new(ARGV)
+gh.fetch
+gh.parse_msg_id
+gh.clone_PR
+gh.checkout_PR
+gh.create_patches
+gh.fix_coverletter
+gh.send_email
+gh.leave_comment
